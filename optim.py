@@ -25,8 +25,6 @@ from resampling import *
 from filtering import *
 from pomps import *
 
-import matplotlib.pyplot as plt
-plt.style.use('matplotlibrc')
 
 MONITORS = 1
 

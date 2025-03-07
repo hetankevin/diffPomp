@@ -20,8 +20,6 @@ tfd = tfp.distributions
 tfb = tfp.bijectors
 tfpk = tfp.math.psd_kernels
 
-import matplotlib.pyplot as plt
-plt.style.use('matplotlibrc')
 
 
 
@@ -57,5 +55,25 @@ def normalize_weights(weights):
     loglik_t = mw + np.log(np.nansum(np.exp(weights - mw))) # p(y_t | x_{t,1:J}, \theta)
     norm_weights = weights - loglik_t
     return norm_weights, loglik_t
+
+
+
+def resample_key(norm_weights, key):
+   J = norm_weights.shape[-1]
+
+   unifs = (jax.random.uniform(key=key)+np.arange(J)) / J
+
+   csum = np.cumsum(np.exp(norm_weights))
+   counts = np.repeat(np.arange(J),
+                      np.histogram(unifs,
+                       bins=np.pad(csum/csum[-1], pad_width=(1,0)),
+                           density=False)[0].astype(int),
+                     total_repeat_length=J)
+
+   #if len(counts)<J:
+   #    counts = np.hstack([counts, np.zeros(J-len(counts))]).astype(int)
+   return counts
+
+
 
 
