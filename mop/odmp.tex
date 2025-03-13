@@ -235,6 +235,8 @@ The extra computation will be negligible in most situations. Therefore, that is 
   }
 \end{algorithm}
 
+Note that there is a small wrinkle here. When we evaluate the measurement density, we evaluate it with the particles under $\phi$. This does not enable the algorithm, as written, to handle partially differentiable simulators. We will make this assumption for the sake of proving some theory. In practice, we evaluate the measurement density under $\theta$, and trust that the nondifferentiability of the simulator with respect to the parameters that pertain to the Euler-multinomial process will prevent undesirable gradients from propagating. So in practice, we can handle partially differentiable simulators, but our theory (at least, when $\theta\neq\phi$) does not handle it.
+
 It remains to define reulermultinom and deulermultinom. This is carried out separately for departured from each compartment, which are supposed to be infinitesially independent given $\Sigma(t)$.
 Suppose compartments are labeled $c=1,\dots,C$, and we have $N_{ab}(t)$ counting total transitions from compartment $a$ to $b$ by time $t$.
 We formally work with the Markov process $X(t)=\{N_{ab}(t), (a,b)\in 1:C \times 1:C\}$. together with an initial compartment membership $X(t_0)$, with the compartment membership process, $X_c(t)$, being defined implicitly.
