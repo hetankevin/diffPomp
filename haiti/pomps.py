@@ -13,6 +13,7 @@ from jax import jit, grad
 from IPython import display
 from toolz.dicttoolz import valmap, itemmap
 from itertools import chain
+from jax.scipy.special import gammaln
 
 from tqdm import tqdm
 from tensorflow_probability.substrates import jax as tfp
@@ -21,12 +22,78 @@ tfb = tfp.bijectors
 tfpk = tfp.math.psd_kernels
 
 
+def normal_approx(key, n, p, shape=None):
+    ntimesp = n * p
+    return np.round(np.sqrt(ntimesp * (1-p)) * jax.random.normal(key, shape) + ntimesp + 1/2)
+    
+def multinomial(
+    key, n, p,
+    shape = None
+    ):
+    r"""Sample from a multinomial distribution.
+    The probability mass function is
+    .. math::
+      f(x;n,p) = \frac{n!}{x_1! \ldots x_k!} p_1^{x_1} \ldots p_k^{x_k}
+    Args:
+    key: PRNG key.
+    n: number of trials. Should have shape broadcastable to ``p.shape[:-1]``.
+    p: probability of each outcome, with outcomes along the last axis.
+    shape: optional, a tuple of nonnegative integers specifying the result batch
+      shape, that is, the prefix of the result shape excluding the last axis.
+      Must be broadcast-compatible with ``p.shape[:-1]``. The default (None)
+      produces a result shape equal to ``p.shape``.
+    dtype: optional, a float dtype for the returned values (default float64 if
+      jax_enable_x64 is true, otherwise float32).
+    Returns:
+    An array of counts for each outcome with the specified dtype and with shape
+      ``p.shape`` if ``shape`` is None, otherwise ``shape + (p.shape[-1],)``.
+    """
+    
+    #key, _ = _check_prng_key("multinomial", key)
+    # jax._src.numpy.util.check_arraylike("multinomial", n, p)
+    # n, p = jax._src.numpy.util.promote_dtypes_inexact(n, p)
+    
+    def f(remainder, ratio_key):
+        ratio, key = ratio_key
+        # normal approximation when |1-2p|/sqrt(np(1-p)) < 0.3 by berry-esseen."
+        count = normal_approx(key, remainder, ratio, shape)
+        # count = jax.lax.cond(np.abs(1-2*ratio)/np.sqrt(remainder * ratio * (1-ratio)) < 0.3,
+        #              normal_approx, 
+        #              jax.random.binomial,
+        #              key, remainder, ratio, shape)
+        #count = jax.random.binomial(key, remainder, ratio, shape)
+        return remainder - count, count
+    
+    p_shape = np.shape(p)
+    
+    if shape is None:
+        shape = p_shape[:-1]
+    
+    n = np.broadcast_to(n, shape)
+    p = np.broadcast_to(p, (*shape, p_shape[-1]))
+    
+    p = np.moveaxis(p, -1, 0)
+    
+    remaining_probs = jax.lax.cumsum(p, 0, reverse=True)
+    ratios = p / np.where(remaining_probs == 0, 1, remaining_probs)
+    
+    keys = jax.random.split(key, ratios.shape[0])
+    remainder, counts = jax.lax.scan(f, n, (ratios, keys), unroll=True)
+    # final remainder should be zero
+    
+    counts = np.moveaxis(counts, 0, -1)
+    
+    return counts
+
+
 #@partial(jax.jit, static_argnums=(1))
 #@jax.jit
 def reulermultinom(key, n, rates, dt, shape=()):
     sumrates = np.sum(rates)
     logp0 = -sumrates * dt
     logits = np.insert(np.log(-np.expm1(logp0)) + np.log(rates) - np.log(sumrates), 0, logp0)
+    #return multinomial(key, n, np.exp(logits), shape=shape)[1:]
+    #return n*np.exp(logits)[1:]
     return tfp.distributions.Multinomial(n, logits=logits).sample(
         seed=key,
         sample_shape=shape,
@@ -37,6 +104,8 @@ def deulermultinom(x, n, rates, dt):
     sumrates = np.sum(rates)
     logp0 = -sumrates * dt
     logits = np.insert(np.log(-np.expm1(logp0)) + np.log(rates) - np.log(sumrates), 0, logp0)
+    # x0 = np.insert(x, 0, n-np.sum(x))
+    # return gammaln(n + 1) + np.sum(x0 * logits - gammaln(x0 + 1), axis=-1)
     return tfp.distributions.Multinomial(n, logits=logits).log_prob(
         np.insert(x, 0, n-np.sum(x))
     )
@@ -137,8 +206,13 @@ dmeasure = jax.vmap(dmeas, (None,0,None))
 dmeasures = jax.vmap(dmeas, (None,0,0))
 
 def sample_and_log_prob(N, rates, dt, key):
+    sumrates = np.sum(rates)
+    logp0 = -sumrates * dt
+    logits = np.insert(np.log(-np.expm1(logp0)) + np.log(rates) - np.log(sumrates), 0, logp0)
+    
     sample = reulermultinom(key, N, rates, dt)
     weights = deulermultinom(sample, N, rates, dt)
+    
     key, subkey = jax.random.split(key)
     return sample, weights, key
 
@@ -179,20 +253,25 @@ def rproc_step(state, weight, theta, key, covar, dt):
     )
     StoE, StoDeath = sample_S
 
+    # sample_E, weights_E, key = sample_and_log_prob(
+    #     E, np.array([sigma*(1-theta0), sigma*theta0, delta]), dt, key
+    # )
+    # EtoI, EtoA, EtoDeath = sample_E
+
     sample_E, weights_E, key = sample_and_log_prob(
-        E, np.array([sigma*(1-theta0), sigma*theta0, delta]), dt, key
+        E, np.array([sigma*(1-theta0), delta]), dt, key
     )
-    EtoI, EtoA, EtoDeath = sample_E
+    EtoI, EtoDeath = sample_E
 
     sample_I, weights_I, key = sample_and_log_prob(
         I, np.array([gamma, delta]), dt, key
     )
     ItoR, ItoDeath = sample_I
 
-    sample_A, weights_A, key = sample_and_log_prob(
-        A, np.array([gamma, delta]), dt, key
-    )
-    AtoR, AtoDeath = sample_A
+    # sample_A, weights_A, key = sample_and_log_prob(
+    #     A, np.array([gamma, delta]), dt, key
+    # )
+    # AtoR, AtoDeath = sample_A
     
     sample_R, weights_R, key = sample_and_log_prob(
         R, np.array([alpha, delta]), dt, key
@@ -200,14 +279,24 @@ def rproc_step(state, weight, theta, key, covar, dt):
     RtoS, RtoDeath = sample_R
 
     S += - StoE - StoDeath + RtoS + births
-    E += - EtoI - EtoA - EtoDeath + StoE
+    E += - EtoI - EtoDeath + StoE
     I += - ItoR - ItoDeath + EtoI
-    A += - AtoR - AtoDeath + EtoA
-    R += - RtoS - RtoDeath + ItoR + AtoR
+    R += - RtoS - RtoDeath + ItoR
+
+    # S += - StoE - StoDeath + RtoS + births
+    # E += - EtoI - EtoA - EtoDeath + StoE
+    # I += - ItoR - ItoDeath + EtoI
+    # A += - AtoR - AtoDeath + EtoA
+    # R += - RtoS - RtoDeath + ItoR + AtoR
     incid += EtoI
     
     t += dt
-    weight += weights_S + weights_E + weights_I + weights_A + weights_R
+    #weight += weights_S + weights_E + weights_I + weights_A + weights_R
+    # weight += (np.nan_to_num(weights_S) + np.nan_to_num(weights_E) + 
+    #            np.nan_to_num(weights_I) + np.nan_to_num(weights_A) + np.nan_to_num(weights_R))
+    #weight += weights_S + weights_E + weights_I + weights_R
+    weight += (np.nan_to_num(weights_S) + np.nan_to_num(weights_E) + 
+               np.nan_to_num(weights_I)+ np.nan_to_num(weights_R))
         
     return np.array([S,E,I,A,R,incid,t]), weight
             

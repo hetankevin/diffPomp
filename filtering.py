@@ -182,7 +182,7 @@ def pfilter_helper(t, inputs):
     
 # test on linear gaussian toy model again
 @partial(jit, static_argnums=2)
-def pfilter(theta, ys, J, covars=None, thresh=100, key=None):
+def pfilter(theta, ys, J, covars=None, thresh=-1, key=None):
     if key is None:
         key = jax.random.PRNGKey(onp.random.choice(int(1e18)))
     
@@ -200,7 +200,7 @@ def pfilter(theta, ys, J, covars=None, thresh=100, key=None):
 
 # test on linear gaussian toy model again
 @partial(jit, static_argnums=2)
-def pfilter_mean(theta, ys, J, covars=None, thresh=100, key=None):
+def pfilter_mean(theta, ys, J, covars=None, thresh=-1, key=None):
     if key is None:
         key = jax.random.PRNGKey(onp.random.choice(int(1e18)))
     
@@ -263,7 +263,7 @@ def perfilter_helper(t, inputs):
 
 
 @partial(jit, static_argnums=2)
-def perfilter(theta, ys, J, sigmas, covars=None, a=0.9, thresh=100, key=None):
+def perfilter(theta, ys, J, sigmas, covars=None, a=0.9, thresh=-1, key=None):
     
     loglik = 0
     thetas = theta + sigmas*onp.random.normal(size=(J, theta.shape[-1]))
@@ -282,7 +282,7 @@ def perfilter(theta, ys, J, sigmas, covars=None, a=0.9, thresh=100, key=None):
     return -loglik, thetas
 
 @partial(jit, static_argnums=2)
-def perfilter_mean(theta, ys, J, sigmas, covars=None, a=0.9, thresh=100, key=None):
+def perfilter_mean(theta, ys, J, sigmas, covars=None, a=0.9, thresh=-1, key=None):
     
     loglik = 0
     thetas = theta + sigmas*onp.random.normal(size=(J, theta.shape[-1]))
@@ -354,7 +354,7 @@ def pfilter_helper_pf(t, inputs):
 
 # test on linear gaussian toy model again
 @partial(jit, static_argnums=2)
-def pfilter_pf(theta, ys, J, covars=None, thresh=100, key=None):
+def pfilter_pf(theta, ys, J, covars=None, thresh=-1, key=None):
     if key is None:
         key = jax.random.PRNGKey(onp.random.choice(int(1e18)))
     
